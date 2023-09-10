@@ -379,12 +379,12 @@ class Client(object):
         res = self._http_session.send(req, verify=self.ssl_verify)
         return res
 
-    def opencyper_bolt(self, query: str, **kwargs):
+    def opencypher_bolt(self, query: str, **kwargs):
         driver = self.get_opencypher_driver()
         with driver.session(database=self.neo4j_database) as session:
             try:
                 res = session.run(query, kwargs)
-                data = res.data()
+                data = [record for record in res]
             except AuthError:
                 print("Neo4J Bolt request failed with an authentication error. Please ensure that the 'neo4j' section "
                       "of your %graph_notebook_config contains the correct credentials and auth setting.")

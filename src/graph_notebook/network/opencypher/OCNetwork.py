@@ -5,6 +5,12 @@ SPDX-License-Identifier: Apache-2.0
 
 import logging
 
+from neo4j.graph import (
+    Relationship,
+    Node,
+    Path,
+)
+
 from graph_notebook.network.EventfulNetwork import EventfulNetwork, DEFAULT_GRP, DEPTH_GRP_KEY, DEFAULT_RAW_GRP_KEY
 from networkx import MultiDiGraph
 
@@ -34,7 +40,7 @@ class OCNetwork(EventfulNetwork):
                  edge_label_max_length=DEFAULT_LABEL_MAX_LENGTH, group_by_property=LABEL_KEY,
                  display_property=LABEL_KEY, edge_display_property=EDGE_TYPE_KEY,
                  tooltip_property=None, edge_tooltip_property=None,
-                 ignore_groups=False, 
+                 ignore_groups=False,
                  group_by_depth=False, group_by_raw=False):
         if graph is None:
             graph = MultiDiGraph()
@@ -181,7 +187,7 @@ class OCNetwork(EventfulNetwork):
         if self.ignore_groups:
             data['group'] = DEFAULT_GRP
         self.add_node(node[ID_KEY], data)
-    
+
     def parse_rel(self, rel):
         data = {'properties': self.flatten(rel), 'label': rel[EDGE_TYPE_KEY], 'title': rel[EDGE_TYPE_KEY]}
         display_label = self.get_edge_property_value(data, rel, self.edge_display_property)
@@ -212,6 +218,21 @@ class OCNetwork(EventfulNetwork):
         Args:
             results (Object): Determines the type of the object and processes it appropriately
         """
+        if type(results) is list:
+            raw_results = results
+            normalized_results = []
+            results = {"results": normalized_results}
+            for record in raw_results:
+                normalized_record = {}
+                for k, v in record:
+                    if type(v) is Node:
+                        normalized_record[k] = normalize_node(v)
+                    elif type(v) is Relationship:
+                        normalized_record[k] = normalize_rel(v)
+                    elif type(v) is Path:
+                        normalized_record[k] = normalize_path(v)
+                if normalized_record:
+                    normalized_results.append(normalized_record)
         for res in results["results"]:
             if type(res) is dict:
                 for k in res.keys():
@@ -225,3 +246,39 @@ class OCNetwork(EventfulNetwork):
                                 logger.debug(f'Property {res_sublist} in list results set is invalid, skipping')
                                 logger.debug(f'Error: {e}')
                                 continue
+
+
+def normalize_node(node: Node):
+    return {
+        ENTITY_KEY: NODE_ENTITY_TYPE,
+        ID_KEY: node['_id'],
+        PROPERTIES_KEY: {
+            k: str(v)
+            for k, v in node.items()
+            if k not in {"_id"}
+        },
+        LABEL_KEY: list(node.labels),
+    }
+
+
+def normalize_rel(rel: Relationship):
+    return {
+        ENTITY_KEY: REL_ENTITY_TYPE,
+        ID_KEY: rel['_id'],
+        PROPERTIES_KEY: {
+            k: str(v)
+            for k, v in rel.items()
+            if k not in {"_id", "_inV", "_outV"}
+        },
+        EDGE_TYPE_KEY: rel.type,
+        START_KEY: rel.start_node['_id'],
+        END_KEY: rel.end_node['_id'],
+    }
+
+
+def normalize_path(path: Path):
+    return [
+        normalize_node(node) for node in path.nodes
+    ] + [
+        normalize_rel(rel) for rel in path.relationships
+    ]

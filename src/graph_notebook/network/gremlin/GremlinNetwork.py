@@ -351,13 +351,7 @@ class GremlinNetwork(EventfulNetwork):
                 node_id = str(v.id)
             else:
                 node_id = v.id
-            title = v.label
-            label_full = ''
-            tooltip_display_is_set = True
-            using_custom_tooltip = False
-            if self.tooltip_property and self.tooltip_property != self.display_property:
-                tooltip_display_is_set = False
-                using_custom_tooltip = True
+            using_custom_tooltip = self.tooltip_property and self.tooltip_property != self.display_property
             vertex_dict = v.__dict__
             if not isinstance(self.group_by_property, dict):  # Handle string format group_by
                 if str(self.group_by_property) == DEFAULT_RAW_GRP_KEY:
@@ -391,30 +385,24 @@ class GremlinNetwork(EventfulNetwork):
                 except KeyError:
                     group = DEFAULT_GRP
 
-            label = title if len(title) <= self.label_max_length else title[:self.label_max_length - 3] + '...'
-
-            if self.display_property:
-                label_property_raw_value = self.get_explicit_vertex_property_value(node_id, title,
-                                                                                   self.display_property)
-                if label_property_raw_value:
-                    label_full, label = self.strip_and_truncate_label_and_title(label_property_raw_value,
-                                                                                self.label_max_length)
-                    if not using_custom_tooltip:
-                        title = label_full
-
+            title, label = None, None
             if using_custom_tooltip:
-                tooltip_property_raw_value = self.get_explicit_vertex_property_value(node_id, title,
-                                                                                      self.tooltip_property)
+                tooltip_property_raw_value = self.get_explicit_vertex_property_value(node_id, v.label,
+                                                                                     self.tooltip_property)
                 if tooltip_property_raw_value:
-                    title, label_plc = self.strip_and_truncate_label_and_title(tooltip_property_raw_value,
-                                                                               self.label_max_length)
-                    tooltip_display_is_set = True
+                    title, label = self.strip_and_truncate_label_and_title(tooltip_property_raw_value,
+                                                                           self.label_max_length)
+            if not title and self.display_property:
+                display_property_raw_value = self.get_explicit_vertex_property_value(node_id, title,
+                                                                                     self.display_property)
+                if display_property_raw_value:
+                    title, label = self.strip_and_truncate_label_and_title(display_property_raw_value,
+                                                                           self.label_max_length)
+            if not title:
+                title, label = self.strip_and_truncate_label_and_title(v.label, self.label_max_length)
 
-            if not tooltip_display_is_set and label_full:
-                title = label_full
-
-            data = {'label': str(label).strip("[]'"), 'title': title, 'group': group,
-                    'properties': {'id': node_id, 'label': label_full}}
+            data = {'label': label, 'title': title, 'group': group,
+                    'properties': {'id': node_id, 'label': v.label}}
         elif type(v) is dict:
             properties = {}
             title = ''

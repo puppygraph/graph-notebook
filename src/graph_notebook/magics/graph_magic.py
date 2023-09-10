@@ -812,7 +812,7 @@ class Graph(Magics):
                             help="Group nodes based on path hierarchy")
         parser.add_argument('-gr', '--group-by-raw', action='store_true', default=False,
                             help="Group nodes by the raw result")
-        parser.add_argument('-d', '--display-property', type=str, default='T.label',
+        parser.add_argument('-d', '--display-property', type=str, default='T.id',
                             help='Property to display the value of on each node, default is T.label')
         parser.add_argument('-de', '--edge-display-property', type=str, default='T.label',
                             help='Property to display the value of on each edge, default is T.label')
@@ -822,10 +822,10 @@ class Graph(Magics):
         parser.add_argument('-te', '--edge-tooltip-property', type=str, default='',
                             help='Property to display the value of on each edge tooltip. If not specified, tooltip '
                                  'will default to the edge label value.')
-        parser.add_argument('-l', '--label-max-length', type=int, default=10,
-                            help='Specifies max length of vertex label, in characters. Default is 10')
-        parser.add_argument('-le', '--edge-label-max-length', type=int, default=10,
-                            help='Specifies max length of edge labels, in characters. Default is 10')
+        parser.add_argument('-l', '--label-max-length', type=int, default=20,
+                            help='Specifies max length of vertex label, in characters. Default is 20')
+        parser.add_argument('-le', '--edge-label-max-length', type=int, default=20,
+                            help='Specifies max length of edge labels, in characters. Default is 20')
         parser.add_argument('--store-to', type=str, default='', help='store query result to this variable')
         parser.add_argument('--ignore-groups', action='store_true', default=False, help="Ignore all grouping options")
         parser.add_argument('--profile-no-results', action='store_false', default=True,
@@ -933,9 +933,11 @@ class Graph(Magics):
                 else:
                     first_tab_html = pre_container_template.render(content='No profile found')
         else:
+            logger.debug(f"Query:\n{cell}\nWaiting for response...")
             query_start = time.time() * 1000  # time.time() returns time in seconds w/high precision; x1000 to get in ms
             query_res = self.client.gremlin_query(cell, transport_args=transport_args)
             query_time = time.time() * 1000 - query_start
+            logger.debug(f"Received response of size: {len(query_res)}")
             if not args.silent:
                 gremlin_metadata = build_gremlin_metadata_from_query(query_type='query', results=query_res,
                                                                      query_time=query_time)
@@ -2700,7 +2702,7 @@ class Graph(Magics):
                             help="Group nodes by the raw result")
         parser.add_argument('mode', nargs='?', default='query', help='query mode [query|bolt|explain]',
                             choices=['query', 'bolt', 'explain'])
-        parser.add_argument('-d', '--display-property', type=str, default='~labels',
+        parser.add_argument('-d', '--display-property', type=str, default='~id',
                             help='Property to display the value of on each node, default is ~labels')
         parser.add_argument('-de', '--edge-display-property', type=str, default='~labels',
                             help='Property to display the value of on each edge, default is ~type')
@@ -2710,10 +2712,10 @@ class Graph(Magics):
         parser.add_argument('-te', '--edge-tooltip-property', type=str, default='',
                             help='Property to display the value of on each edge tooltip. If not specified, tooltip '
                                  'will default to the edge label value.')
-        parser.add_argument('-l', '--label-max-length', type=int, default=10,
-                            help='Specifies max length of vertex label, in characters. Default is 10')
-        parser.add_argument('-rel', '--rel-label-max-length', type=int, default=10,
-                            help='Specifies max length of edge labels, in characters. Default is 10')
+        parser.add_argument('-l', '--label-max-length', type=int, default=20,
+                            help='Specifies max length of vertex label, in characters. Default is 20')
+        parser.add_argument('-rel', '--rel-label-max-length', type=int, default=20,
+                            help='Specifies max length of edge labels, in characters. Default is 20')
         parser.add_argument('--store-to', type=str, default='', help='store query result to this variable')
         parser.add_argument('--ignore-groups', action='store_true', default=False, help="Ignore all grouping options")
         parser.add_argument('-sp', '--stop-physics', action='store_true', default=False,
@@ -2840,12 +2842,16 @@ class Graph(Magics):
 
         elif args.mode == 'bolt':
             res_format = 'bolt'
+            logger.debug(f"Query:\n{cell}\nWaiting for response...")
             query_start = time.time() * 1000
             if query_params:
-                res = self.client.opencyper_bolt(cell, **query_params)
+                raw_res = self.client.opencypher_bolt(cell, **query_params)
             else:
-                res = self.client.opencyper_bolt(cell)
+                raw_res = self.client.opencypher_bolt(cell)
+            res = [record.data() for record in raw_res]
+            structured_res = [record.items() for record in raw_res]
             query_time = time.time() * 1000 - query_start
+            logger.debug(f"Received response of size: {len(query_res)}")
             if not args.silent:
                 oc_metadata = build_opencypher_metadata_from_query(query_type='bolt', results=res,
                                                                    results_type=res_format, query_time=query_time)
@@ -2862,6 +2868,28 @@ class Graph(Magics):
                                           axis='columns',
                                           inplace=True)
                 # Need to eventually add code to parse and display a network for the bolt format here
+                try:
+                    gn = OCNetwork(group_by_property=args.group_by, display_property=args.display_property,
+                                   group_by_raw=args.group_by_raw,
+                                   group_by_depth=args.group_by_depth,
+                                   edge_display_property=args.edge_display_property,
+                                   tooltip_property=args.tooltip_property,
+                                   edge_tooltip_property=args.edge_tooltip_property,
+                                   label_max_length=args.label_max_length,
+                                   edge_label_max_length=args.rel_label_max_length,
+                                   ignore_groups=args.ignore_groups)
+                    gn.add_results(structured_res)
+                    logger.debug(f'number of nodes is {len(gn.graph.nodes)}')
+                    if len(gn.graph.nodes) > 0:
+                        physics = self.graph_notebook_vis_options['physics']
+                        physics['disablePhysicsAfterInitialSimulation'] = args.stop_physics
+                        physics['simulationDuration'] = args.simulation_duration
+                        force_graph_output = Force(network=gn, options=self.graph_notebook_vis_options)
+                        titles.append('Graph')
+                        children.append(force_graph_output)
+                except (TypeError, ValueError) as network_creation_error:
+                    logger.debug(f'Unable to create network from result. Skipping from result set: {structured_res}')
+                    logger.debug(f'Error: {network_creation_error}')
 
         if not args.silent:
             if args.mode != 'explain':

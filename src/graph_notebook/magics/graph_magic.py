@@ -312,6 +312,7 @@ class Graph(Magics):
             builder = ClientBuilder() \
                 .with_host(config.host) \
                 .with_port(config.port) \
+                .with_port_dict(config.port_dict) \
                 .with_tls(config.ssl) \
                 .with_ssl_verify(config.ssl_verify) \
                 .with_sparql_path(config.sparql.path) \

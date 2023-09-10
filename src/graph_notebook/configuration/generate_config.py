@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 from enum import Enum
+from typing import Dict
 
 from graph_notebook.neptune.client import SPARQL_ACTION, DEFAULT_PORT, DEFAULT_REGION, DEFAULT_GREMLIN_SERIALIZER, \
     DEFAULT_GREMLIN_TRAVERSAL_SOURCE, DEFAULT_NEO4J_USERNAME, DEFAULT_NEO4J_PASSWORD, DEFAULT_NEO4J_DATABASE, \
@@ -122,9 +123,11 @@ class Configuration(object):
                  proxy_host: str = '', proxy_port: int = DEFAULT_PORT,
                  sparql_section: SparqlSection = None, gremlin_section: GremlinSection = None,
                  neo4j_section: Neo4JSection = None,
-                 neptune_hosts: list = NEPTUNE_CONFIG_HOST_IDENTIFIERS):
+                 neptune_hosts: list = NEPTUNE_CONFIG_HOST_IDENTIFIERS,
+                 port_dict: Dict[str, int] = None):
         self._host = host.strip()
         self.port = port
+        self.port_dict = port_dict
         self.ssl = ssl
         self.ssl_verify = ssl_verify
         self._proxy_host = proxy_host.strip()
@@ -181,6 +184,7 @@ class Configuration(object):
             return {
                 'host': self.host,
                 'port': self.port,
+                'port_dict': self.port_dict,
                 'proxy_host': self.proxy_host,
                 'proxy_port': self.proxy_port,
                 'ssl': self.ssl,

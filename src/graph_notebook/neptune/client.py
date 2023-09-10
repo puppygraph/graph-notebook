@@ -20,6 +20,7 @@ from gremlin_python.driver.protocol import GremlinServerError
 from neo4j import GraphDatabase, DEFAULT_DATABASE
 from neo4j.exceptions import AuthError
 from base64 import b64encode
+from typing import Dict
 import nest_asyncio
 
 from graph_notebook.neptune.bolt_auth_token import NeptuneBoltAuthToken
@@ -29,7 +30,7 @@ from graph_notebook.neptune.bolt_auth_token import NeptuneBoltAuthToken
 # client >= 3.5.0 as the HashableDict is now part of that client driver.
 # import graph_notebook.neptune.gremlin.graphsonV3d0_MapType_objectify_patch  # noqa F401
 
-DEFAULT_GREMLIN_SERIALIZER = 'graphsonv3'
+DEFAULT_GREMLIN_SERIALIZER = 'graphbinaryv1'
 DEFAULT_GREMLIN_TRAVERSAL_SOURCE = 'g'
 DEFAULT_SPARQL_CONTENT_TYPE = 'application/x-www-form-urlencoded'
 DEFAULT_PORT = 8182
@@ -133,7 +134,8 @@ def get_gremlin_serializer(serializer_str: str):
 
 
 class Client(object):
-    def __init__(self, host: str, port: int = DEFAULT_PORT, ssl: bool = True, ssl_verify: bool = True,
+    def __init__(self, host: str, port: int = DEFAULT_PORT, port_dict: Dict[str, int] = None,
+                 ssl: bool = True, ssl_verify: bool = True,
                  region: str = DEFAULT_REGION, sparql_path: str = '/sparql',
                  gremlin_traversal_source: str = DEFAULT_GREMLIN_TRAVERSAL_SOURCE,
                  gremlin_username: str = '', gremlin_password: str = '',
@@ -145,6 +147,7 @@ class Client(object):
                  neptune_hosts: list = None):
         self.target_host = host
         self.target_port = port
+        self.target_port_dict = port_dict
         self.ssl = ssl
         self.ssl_verify = ssl_verify
         if not self.ssl_verify:
@@ -182,15 +185,20 @@ class Client(object):
             return self.proxy_port
         return self.target_port
 
+    def port_for(self, port_key: str = None):
+        if self.target_port_dict and self.target_port_dict.get(port_key) is not None:
+            return self.target_port_dict[port_key]
+        return self.port
+
     def is_neptune_domain(self):
         return is_allowed_neptune_host(hostname=self.target_host, host_allowlist=self.neptune_hosts)
 
-    def get_uri_with_port(self, use_websocket=False, use_proxy=False):
+    def get_uri_with_port(self, use_websocket=False, use_proxy=False, port_key: str = None):
         protocol = self._http_protocol
         if use_websocket is True:
             protocol = self._ws_protocol
 
-        uri = f'{protocol}://{self.host}:{self.port}'
+        uri = f'{protocol}://{self.host}:{self.port_for(port_key)}'
         return uri
 
     def sparql_query(self, query: str, headers=None, explain: str = '', path: str = '') -> requests.Response:
@@ -266,7 +274,7 @@ class Client(object):
     def get_gremlin_connection(self, transport_kwargs) -> client.Client:
         nest_asyncio.apply()
 
-        ws_url = f'{self.get_uri_with_port(use_websocket=True)}/gremlin'
+        ws_url = f'{self.get_uri_with_port(use_websocket=True, port_key="gremlin")}/gremlin'
         request = self._prepare_request('GET', ws_url)
         traversal_source = 'g' if self.is_neptune_domain() else self.gremlin_traversal_source
         return client.Client(ws_url, traversal_source, username=self.gremlin_username,
@@ -397,7 +405,7 @@ class Client(object):
         return self._query_status('openCypher', query_id=query_id, cancelQuery=True, silent=silent)
 
     def get_opencypher_driver(self):
-        url = f'bolt://{self.host}:{self.port}'
+        url = f'bolt://{self.host}:{self.port_for("bolt")}'
 
         if self.is_neptune_domain():
             if self._session and self.iam_enabled:
@@ -840,6 +848,10 @@ class ClientBuilder(object):
 
     def with_port(self, port: int):
         self.args['port'] = port
+        return ClientBuilder(self.args)
+
+    def with_port_dict(self, port_dict: Dict[str, int]):
+        self.args['port_dict'] = port_dict
         return ClientBuilder(self.args)
 
     def with_sparql_path(self, path: str):

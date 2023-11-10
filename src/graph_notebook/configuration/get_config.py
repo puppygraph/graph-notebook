@@ -51,7 +51,8 @@ def get_config_from_dict(data: dict, neptune_hosts: list = NEPTUNE_CONFIG_HOST_I
         config = Configuration(host=data['host'], port=data['port'], port_dict=data.get('port_dict'),
                                ssl=data['ssl'], ssl_verify=ssl_verify,
                                sparql_section=sparql_section, gremlin_section=gremlin_section, neo4j_section=neo4j_section,
-                               proxy_host=proxy_host, proxy_port=proxy_port)
+                               proxy_host=proxy_host, proxy_port=proxy_port,
+                               evaluation_timeout=data.get('evaluation_timeout'))
     return config
 
 

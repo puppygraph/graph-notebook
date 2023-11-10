@@ -124,7 +124,8 @@ class Configuration(object):
                  sparql_section: SparqlSection = None, gremlin_section: GremlinSection = None,
                  neo4j_section: Neo4JSection = None,
                  neptune_hosts: list = NEPTUNE_CONFIG_HOST_IDENTIFIERS,
-                 port_dict: Dict[str, int] = None):
+                 port_dict: Dict[str, int] = None,
+                 evaluation_timeout: int = 30000):
         self._host = host.strip()
         self.port = port
         self.port_dict = port_dict
@@ -133,6 +134,7 @@ class Configuration(object):
         self._proxy_host = proxy_host.strip()
         self.proxy_port = proxy_port
         self.sparql = sparql_section if sparql_section is not None else SparqlSection()
+        self.evaluation_timeout = evaluation_timeout
 
         is_neptune_host = is_allowed_neptune_host(hostname=self.host, host_allowlist=neptune_hosts) \
             or is_allowed_neptune_host(hostname=self.proxy_host, host_allowlist=neptune_hosts)
@@ -191,7 +193,8 @@ class Configuration(object):
                 'ssl_verify': self.ssl_verify,
                 'sparql': self.sparql.to_dict(),
                 'gremlin': self.gremlin.to_dict(),
-                'neo4j': self.neo4j.to_dict()
+                'neo4j': self.neo4j.to_dict(),
+                'evaluation_timeout': self.evaluation_timeout,
             }
 
     def write_to_file(self, file_path=DEFAULT_CONFIG_LOCATION):

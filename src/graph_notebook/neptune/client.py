@@ -6,6 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 import json
 import logging
 import re
+import signal
+from contextlib import contextmanager
 
 import requests
 import urllib3
@@ -17,8 +19,8 @@ from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from gremlin_python.driver import client, serializer
 from gremlin_python.driver.protocol import GremlinServerError
-from neo4j import GraphDatabase, DEFAULT_DATABASE
-from neo4j.exceptions import AuthError
+from neo4j import GraphDatabase, DEFAULT_DATABASE, Query
+from neo4j.exceptions import AuthError, ServiceUnavailable
 from base64 import b64encode
 from typing import Dict
 import nest_asyncio
@@ -116,6 +118,18 @@ SUMMARY_MODES = ["", "basic", "detailed"]
 STATISTICS_LANGUAGE_INPUTS = ["propertygraph", "pg", "gremlin", "oc", "opencypher", "sparql", "rdf"]
 
 
+@contextmanager
+def timeout(milliseconds: int = 30000, error_msg: str = "Timeout!"):
+    def signal_handler(signum, frame):
+        raise TimeoutError(error_msg)
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.setitimer(signal.ITIMER_REAL, milliseconds / 1e3)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+
+
 def is_allowed_neptune_host(hostname: str, host_allowlist: list):
     for host_snippet in host_allowlist:
         if re.search(host_snippet, hostname):
@@ -144,7 +158,8 @@ class Client(object):
                  neo4j_auth: bool = True, neo4j_database: str = DEFAULT_NEO4J_DATABASE,
                  auth=None, session: Session = None,
                  proxy_host: str = '', proxy_port: int = DEFAULT_PORT,
-                 neptune_hosts: list = None):
+                 neptune_hosts: list = None,
+                 evaluation_timeout: int = 30000):
         self.target_host = host
         self.target_port = port
         self.target_port_dict = port_dict
@@ -167,6 +182,7 @@ class Client(object):
         self.proxy_host = proxy_host
         self.proxy_port = proxy_port
         self.neptune_hosts = NEPTUNE_CONFIG_HOST_IDENTIFIERS if neptune_hosts is None else neptune_hosts
+        self.evaluation_timeout = evaluation_timeout or 30000
 
         self._http_protocol = 'https' if self.ssl else 'http'
         self._ws_protocol = 'wss' if self.ssl else 'ws'
@@ -286,11 +302,17 @@ class Client(object):
             transport_args = {}
         c = self.get_gremlin_connection(transport_args)
         try:
-            result = c.submit(query, bindings)
-            future_results = result.all()
-            results = future_results.result()
+            future = c.submit_async(query,
+                                    bindings=bindings,
+                                    request_options={"evaluationTimeout": self.evaluation_timeout})
+            future_results = future.result(timeout=self.evaluation_timeout).all()
+            results = future_results.result(timeout=self.evaluation_timeout)
             c.close()
             return results
+        except TimeoutError as e:
+            print("Gremlin evaluation timeout!")
+            c.close()
+            raise e
         except Exception as e:
             if isinstance(e, GremlinServerError):
                 source_err = re.compile('The traversal source \\[.] for alias \\[.] is not configured on the server\\.')
@@ -381,13 +403,23 @@ class Client(object):
 
     def opencypher_bolt(self, query: str, **kwargs):
         driver = self.get_opencypher_driver()
-        with driver.session(database=self.neo4j_database) as session:
+        neo4j_query = Query(text=query, timeout=self.evaluation_timeout / 1e3)
+        if not kwargs:
+            kwargs = {"evaluationTimeout": self.evaluation_timeout}
+        elif "evaluationTimeout" not in kwargs:
+            kwargs["evaluationTimeout"] = self.evaluation_timeout
+        with (driver.session(database=self.neo4j_database) as session,
+              timeout(milliseconds=self.evaluation_timeout,
+                      error_msg=f"Bolt query `{query}` timeout after {self.evaluation_timeout} milliseconds")):
             try:
-                res = session.run(query, kwargs)
+                res = session.run(neo4j_query, kwargs)
                 data = [record for record in res]
             except AuthError:
                 print("Neo4J Bolt request failed with an authentication error. Please ensure that the 'neo4j' section "
                       "of your %graph_notebook_config contains the correct credentials and auth setting.")
+                data = []
+            except (ServiceUnavailable, TimeoutError):
+                raise TimeoutError(f"Bolt query `{query}` timeout after {self.evaluation_timeout} milliseconds!")
                 data = []
         driver.close()
         return data
@@ -904,6 +936,10 @@ class ClientBuilder(object):
 
     def with_custom_neptune_hosts(self, neptune_hosts: list):
         self.args['neptune_hosts'] = neptune_hosts
+        return ClientBuilder(self.args)
+
+    def with_evaluation_timeout(self, evaluation_timeout: int):
+        self.args['evaluation_timeout'] = evaluation_timeout
         return ClientBuilder(self.args)
 
     def build(self) -> Client:

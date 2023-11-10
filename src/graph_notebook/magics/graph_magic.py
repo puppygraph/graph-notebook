@@ -320,7 +320,8 @@ class Graph(Magics):
                 .with_gremlin_login(config.gremlin.username, config.gremlin.password) \
                 .with_gremlin_serializer(config.gremlin.message_serializer) \
                 .with_neo4j_login(config.neo4j.username, config.neo4j.password, config.neo4j.auth,
-                                  config.neo4j.database)
+                                  config.neo4j.database) \
+                .with_evaluation_timeout(config.evaluation_timeout)
 
         self.client = builder.build()
 
@@ -2851,7 +2852,7 @@ class Graph(Magics):
             res = [record.data() for record in raw_res]
             structured_res = [record.items() for record in raw_res]
             query_time = time.time() * 1000 - query_start
-            logger.debug(f"Received response of size: {len(query_res)}")
+            logger.debug(f"Received response of size: {len(res)}")
             if not args.silent:
                 oc_metadata = build_opencypher_metadata_from_query(query_type='bolt', results=res,
                                                                    results_type=res_format, query_time=query_time)

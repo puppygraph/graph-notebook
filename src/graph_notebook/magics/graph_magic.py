@@ -2861,7 +2861,10 @@ class Graph(Magics):
                 if rows_and_columns:
                     titles.append('Console')
                     results_df = pd.DataFrame(rows_and_columns['rows'])
-                    results_df = results_df.astype(str)
+                    try:
+                        results_df = results_df.astype(str)
+                    except Exception as error:
+                        logger.debug(f'Error: {error}')
                     results_df = results_df.applymap(lambda x: replace_html_chars(x))
                     results_df.insert(0, "#", range(1, len(results_df) + 1))
                     for col_index, col_name in enumerate(rows_and_columns['columns']):
